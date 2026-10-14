@@ -1,0 +1,72 @@
+# Example: Tool Permission Matrix
+
+A worked example for a fictional **customer-support triage agent** (Tier 2, autonomy L1).
+Copy this file and fill it in for your own agents.
+
+```yaml
+agent:
+  identity: agent-support-triage-01
+  owner: j.rivera@example.com
+  purpose: Triage inbound support tickets and draft replies for human review
+  risk_tier: 2
+  autonomy_level: L1
+  data_classification: internal
+  environment: production
+
+# Deny-by-default: only listed tools/actions are permitted.
+tools:
+  - tool: ticket_system
+    allowed_actions:
+      - tickets:read:queue-support      # read-only, scoped to the support queue
+      - tickets:update:status           # may change status, nothing else
+      - tickets:add:internal_note       # internal notes only
+    denied_actions:
+      - tickets:delete
+      - tickets:merge
+    approval_required: false            # reads and status changes are low-risk
+
+  - tool: knowledge_base
+    allowed_actions:
+      - kb:search
+      - kb:read:article
+    approval_required: false
+
+  - tool: email
+    allowed_actions:
+      - email:draft                     # draft only — never send
+    denied_actions:
+      - email:send
+      - email:send_as:human
+    approval_required: true             # every send needs a human gate
+    approval_note: "Approver sees draft, recipient, and agent rationale"
+
+  - tool: crm
+    allowed_actions:
+      - crm:read:contact
+    denied_actions:
+      - crm:write
+      - crm:export
+    data_boundary: "No bulk export; single-contact reads only"
+
+# Anything not listed here is denied at the enforcement layer.
+default_policy: deny
+
+logging:
+  level: full                          # every tool call logged
+  retention_days: 365
+  alert_on:
+    - permission_denied                 # possible prompt-injection probing
+    - first_time_tool_use
+    - denied_action_attempt
+
+review:
+  owner_review_cadence: monthly
+  permission_recertification: every 6 months
+```
+
+## How to read this
+
+- **allowed_actions** use `resource:action:scope` naming. Make scopes as narrow as the tool allows.
+- **denied_actions** are listed explicitly for risky near-misses, so reviewers see the boundary was considered.
+- **approval_required: true** means the tool call blocks until a human approves it — enforced in the tool layer, not the prompt.
+- If a tool can't express fine scopes natively, put a policy proxy in front of it and enforce scopes there.
